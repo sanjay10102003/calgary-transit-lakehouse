@@ -1,0 +1,44 @@
+# Same job as tools/create_job.py, as an asset bundle.
+# databricks bundle deploy && databricks bundle run transit_pipeline
+bundle:
+  name: calgary-transit-lakehouse
+
+targets:
+  dev:
+    mode: development
+    default: true
+
+resources:
+  jobs:
+    transit_pipeline:
+      name: calgary-transit-pipeline
+      max_concurrent_runs: 1
+      schedule:
+        quartz_cron_expression: "0 0 * * * ?"   # hourly
+        timezone_id: America/Edmonton
+        pause_status: UNPAUSED
+      email_notifications:
+        on_failure: [sanjaysundar2468@gmail.com]
+      tasks:
+        - task_key: bronze_realtime
+          notebook_task: { notebook_path: ./notebooks/01_bronze_realtime.py }
+          max_retries: 2
+          min_retry_interval_millis: 60000
+        - task_key: schedule
+          depends_on: [{ task_key: bronze_realtime }]
+          notebook_task: { notebook_path: ./notebooks/02_schedule.py }
+          max_retries: 1
+        - task_key: silver_realtime
+          depends_on: [{ task_key: schedule }]
+          notebook_task: { notebook_path: ./notebooks/03_silver_realtime.py }
+          max_retries: 2
+        - task_key: stop_events
+          depends_on: [{ task_key: silver_realtime }]
+          notebook_task:
+            notebook_path: ./notebooks/04_silver_stop_events.py
+            base_parameters: { lookback_days: "2" }
+          max_retries: 1
+        - task_key: gold
+          depends_on: [{ task_key: stop_events }]
+          notebook_task: { notebook_path: ./notebooks/05_gold.py }
+          max_retries: 1
